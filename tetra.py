@@ -78,14 +78,14 @@ max_pattern_checking_stars = 8
 max_mismatch_probability = 1e-20
 
 # percentage of fine sky map that stores values
-fine_sky_map_fill_factor = .5
+fine_sky_map_fill_factor = 1
 
 # number of divisions to break a single radius of
 # the celestial sphere into for rapid star lookup
 num_fine_sky_map_bins = 100
 
 # percentage of course sky map that stores values
-course_sky_map_fill_factor = .5
+course_sky_map_fill_factor = 1
 
 # number of divisions to break a single radius of
 # the celestial sphere into for rapid star lookup
@@ -239,7 +239,7 @@ if read_failed or str(parameters) != stored_parameters:
   # add all non-double stars brighter than magnitude_minimum to the star table and sky maps
   star_table = np.zeros((STARN+1, 3), dtype=np.float32)
   # create fine sky map hash table, which maps vectors to star ids
-  fine_sky_map = np.zeros(len(stars) / fine_sky_map_fill_factor, dtype=np.uint16)
+  :ine_sky_map = np.zeros(int(len(stars) / fine_sky_map_fill_factor), dtype=np.uint16)
   # create course sky map hash table, which maps vectors to star ids
   course_sky_map = {}
   for (vector, mag, star_id) in stars_no_doubles:
