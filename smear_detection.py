@@ -5,6 +5,7 @@ from matplotlib import pyplot as plt
 from sklearn.metrics import mean_squared_error
 from sklearn import linear_model, datasets
 
+
 def basic(img):
     img = cv.medianBlur(img,5)
     ret,th1 = cv.threshold(img,50,255,cv.THRESH_BINARY)
@@ -23,7 +24,9 @@ def basic(img):
     return th1
 
 def otsu(img):
+    #return _binarizeStarfieldImage(img)
     # global thresholding
+    #img = cv.fastNlMeansDenoising(5,None,7,21)
     ret1,th1 = cv.threshold(img,50,255,cv.THRESH_BINARY)
     # Otsu's thresholding
     ret2,th2 = cv.threshold(img,0,255,cv.THRESH_BINARY+cv.THRESH_OTSU)
@@ -58,15 +61,44 @@ def otsu(img):
 def add_drift(img, mean, variance):
     pass
 
-def add_sensor_noise(img, mean, variance):
-    gauss = np.random.normal(mean, variance ** 0.5, (row, col, ch))
-    gauss = gauss.reshape(row, col, ch)
+def add_sensor_noise(img, mean=0, sigma=0.5):
+    # hubble 1x1 binning Amp-D ~1.9 sigma read noise
+    # WISE is about 3
+    rv = img.copy()
+    noise = img.copy()
+    cv.randn(noise, mean, sigma)
+    return rv + noise
+
+
+def _binarizeStarfieldImage(imgray, fudge=20):
+    """
+    
+    :param imgray: grayscale image as returned by cv.cvtColor(im, cv.COLOR_BGR2GRAY)
+    :rtype: binary image where stars are retained
+    """
+    maxThreshold = 150
+    
+    # Find the average background brightness of the starfield.
+    # In most cases this corresponds to the first spike of the image histogram,
+    # assuming that the starfield background is the darkest part of the image.
+    # The threshold for binarization is then the average plus an empirical value.
+    hist = cv.calcHist([imgray],[0],None,[256],[0,255]).reshape(256)
+    # Sometimes there are small bumps before the first main spike.
+    # To prevent choosing the wrong spike, the histogram is slightly smoothed.
+    hist[1:-1] = (hist[:-2] + hist[1:-1] + hist[2:]) / 3 # smoothing with window=3
+    histDiff = hist[1:] - hist[:-1]
+    firstSpike = np.argmax(histDiff<0)
+    threshold = min(firstSpike + fudge, maxThreshold)
+        
+    _,binary = cv.threshold(imgray, threshold, 255, cv.THRESH_BINARY)
+    return binary
+
 
 def smear(img, count=30):
     import random, math
     rows, cols = img.shape
     length = random.randrange(200, rows + cols) # in pixels
-    smear_width = 5 # pixels
+    smear_width = 2 # pixels
     x_start = random.randrange(0, cols)
     y_start = random.randrange(0, rows)
     #angle = random.uniform(0, 2 * 3.1415)
@@ -147,11 +179,12 @@ def find_stars(frame):
 def find_smears(frames):
     import itertools
     stars = find_stars(frames[0])
+    num_stars = len(stars)
     kdtree = scipy.spatial.KDTree(stars)
     all_anomolies = []
     for i in range(1, len(frames)):
         # O(n^2), but doable by ASIC
-        anomolies = find_anomolies(frames[i-1], frames[i])
+        anomolies = find_anomolies(frames[0], frames[i])
         if not anomolies:
             continue
         all_anomolies += anomolies
@@ -161,7 +194,7 @@ def find_smears(frames):
     print('anoms:', all_anomolies)
 
     x, y = zip(*all_anomolies)
-    ransac = linear_model.RANSACRegressor()
+    ransac = linear_model.RANSACRegressor(max_trials=0.5 * num_stars)
     ransac.fit(np.asarray(x).reshape(-1, 1), np.asarray(y).reshape(-1, 1))
 
     coef = ransac.estimator_.coef_
@@ -177,57 +210,6 @@ def find_smears(frames):
     plt.scatter(x, y)
         #cv.circle(frames[0], (anom[0], anom[1]), 10, (0, 0, 0), -1)
     return line_info
-    """
-    if len(all_anomolies) < 2:
-        Exception('Not enough anomolies')
-    pairs = list(itertools.combinations(all_anomolies, 2))
-    print('anoms:', all_anomolies)
-    #print('pairs:', list(pairs))
-    lines = []
-    for pair in pairs:
-        #x, y = zip(*pair)
-        #print('pair:', pair)
-        x = (pair[0][0], pair[1][0])
-        y = (pair[0][1], pair[1][1])
-        #print('[x,y]:', [x, y])
-        #coefs.append(np.polyfit(x, y, 1))
-        dx = x[1] - x[0]#pairs[1][0] - pairs[0][0]
-        dy = y[1] - y[0]#pairs[1][1] - pairs[0][1]
-        try:
-            slope = dy / dx
-        except ZeroDivisionError:
-            continue
-            #slope = float('Inf')
-        # y = mx + b
-        # b = y - mx
-        #intercept = y[0] - x[0] * slope
-        #coefs.append((slope, intercept))
-        #filtered_pairs.append(pair)
-
-        line = {}
-        line['intercept'] = y[0] - x[0] * slope
-        line['slope'] = slope
-        line['points'] = pair
-        lines.append(line)
-
-    #print('coefs:', coefs)
-
-
-    # Now that we have linear eq, compute mean squared error
-    # line with the lowest error wins
-    x_true, y_true = zip(*all_anomolies)
-    for line in lines:
-        y_pred = [line['slope'] * x + line['intercept'] for x in x_true] # y=mx+b
-        line['error'] = mean_squared_error(y_true, y_pred)
-
-    sorted_lines = sorted(lines, key=lambda x: x['error'])
-    print("Best lines: {}".format(sorted_lines[0:5]))
-
-    # Now that we have a starting point, discard outliers and try again
-    #remove_outliers()
-    return sorted_lines[0]
-    """
-#def remove_
 
 def optical_flow(ref_img, smear_img):
     #star_pos = [(row, col) for row, col in (range(ref_img.shape[0]), range(ref_img.shape[1]))]
@@ -258,8 +240,15 @@ def graph_props(img, actual, estimate):
     plt.imshow(img, 'gray')
 
 
-base_img = cv.imread('pics/night_sky0.jpg',0)
+base_img = cv.imread('pics/night_sky4.jpg',0)
 frames, props = smear(base_img)
+otsu_img = otsu(base_img)
+plt.figure()
+plt.title('Starfield after Otsu Binarization')
+plt.imshow(otsu_img, 'gray')
+frames = [add_sensor_noise(f) for f in frames]
+plt.figure()
+plt.imshow(otsu(frames[1]), 'gray')
 line_props = find_smears([base_img] + frames)
 print('estimated props', line_props)
 print('actual props:', props)
