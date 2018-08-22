@@ -61,7 +61,8 @@ def otsu(img):
 def add_drift(img, mean, variance):
     pass
 
-def add_sensor_noise(img, mean=0, sigma=0.5):
+def add_sensor_noise(img, mean=0, sigma=0.57):
+    # http://www.awaiba.com/product/naneye/ 1.2 dn
     # hubble 1x1 binning Amp-D ~1.9 sigma read noise
     # WISE is about 3
     rv = img.copy()
@@ -94,11 +95,11 @@ def _binarizeStarfieldImage(imgray, fudge=20):
     return binary
 
 
-def smear(img, count=30):
+def smear(img, count=50):
     import random, math
     rows, cols = img.shape
     length = random.randrange(200, rows + cols) # in pixels
-    smear_width = 2 # pixels
+    smear_width = 30 # pixels
     x_start = random.randrange(0, cols)
     y_start = random.randrange(0, rows)
     #angle = random.uniform(0, 2 * 3.1415)
@@ -133,10 +134,14 @@ def smear(img, count=30):
         #plt.imshow(frame,'gray')
         #plt.figure()
         #print((x_pos, y_pos))
-    plt.title("Reference image with superimposed occultation")
+    plt.title("Reference Image with Transiting NEO Smear")
+    plt.xlabel('X Position (pixels)')
+    plt.ylabel('Y Position (pixels)')
     plt.imshow(frame,'gray')
     plt.figure()
-    plt.title("Reference image with enlarged occultation")
+    plt.title("NEO Positions During Image Captures")
+    plt.xlabel('X Position (pixels)')
+    plt.ylabel('Y Position (pixels)')
     plt.ylim(rows, 0)
     plt.xlim(0, cols)
     plt.scatter(xs, ys)
@@ -177,11 +182,13 @@ def find_stars(frame):
 
 
 def find_smears(frames):
-    import itertools
+    import itertools, time
+    start = time.time()
     stars = find_stars(frames[0])
     num_stars = len(stars)
     kdtree = scipy.spatial.KDTree(stars)
     all_anomolies = []
+    per_frame_times = []
     for i in range(1, len(frames)):
         # O(n^2), but doable by ASIC
         anomolies = find_anomolies(frames[0], frames[i])
@@ -191,24 +198,28 @@ def find_smears(frames):
         #pairs = kdtree.query_pairs(800)
         print('Found {} anomolies in frame {}'.format(len(anomolies), i))
     all_anomolies = list(filter(None, all_anomolies))
-    print('anoms:', all_anomolies)
+    #print('anoms:', all_anomolies)
 
     x, y = zip(*all_anomolies)
-    ransac = linear_model.RANSACRegressor(max_trials=0.5 * num_stars)
+    ransac = linear_model.RANSACRegressor(max_trials=num_stars, stop_probability=0.99999)
     ransac.fit(np.asarray(x).reshape(-1, 1), np.asarray(y).reshape(-1, 1))
 
     coef = ransac.estimator_.coef_
     line_info = {}
-    [line_info['slope']] = ransac.estimator_.coef_
+    [[line_info['slope']]] = ransac.estimator_.coef_
     [line_info['intercept']] = ransac.estimator_.intercept_
 
 
     plt.figure()
-    plt.title('Anomolies')
+    plt.title('Starfield Anomolies')
+    plt.xlabel('X Position (pixels)')
+    plt.ylabel('Y Position (pixels)')
     plt.xlim(0, frames[0].shape[1])
     plt.ylim(frames[0].shape[0], 0)
     plt.scatter(x, y)
         #cv.circle(frames[0], (anom[0], anom[1]), 10, (0, 0, 0), -1)
+    per_frame_time = (time.time() - start) / len(frames)
+    print('mean {}s per frame'.format(per_frame_time))
     return line_info
 
 def optical_flow(ref_img, smear_img):
@@ -227,34 +238,109 @@ def optical_flow(ref_img, smear_img):
 
 
 def graph_props(img, actual, estimate):
-    cv.line(img,actual['start'],actual['end'],(255,0,0),5)
+    #cv.line(img,actual['start'],actual['end'],(255,0,0),5)
 
     x_start, x_end = (actual['start'][0], actual['end'][0])
     y_start = int(estimate['slope'] * x_start + estimate['intercept'])
     y_end = int(estimate['slope'] * x_end + estimate['intercept'])
 
-    cv.line(img,(x_start, y_start), (x_end, y_end), (127,0,0),5)
+    #cv.line(img,(x_start, y_start), (x_end, y_end), (127,0,0),5)
     
     plt.figure()
-    plt.title("Graph props")
+    estimate_line = plt.plot([x_start, x_end], [y_start, y_end], 'g-')
+    actual_line = plt.plot([x_start, x_end], [actual['start'][1], actual['end'][1]], 'r-')
+    plt.title("Actual vs. Estimated NEO Trajectory")
+    plt.xlabel('X Position (pixels)')
+    plt.ylabel('Y Position (pixels)')
+    plt.legend([actual_line, estimate_line], ['Actual Trajectory', 'Estimated Trajectory'])
     plt.imshow(img, 'gray')
 
+def discretize_line(slope, intercept, steps=50):
+    return [slope * x + intercept for x in range(steps)]
 
-base_img = cv.imread('pics/night_sky4.jpg',0)
-frames, props = smear(base_img)
-otsu_img = otsu(base_img)
-plt.figure()
-plt.title('Starfield after Otsu Binarization')
-plt.imshow(otsu_img, 'gray')
-frames = [add_sensor_noise(f) for f in frames]
-plt.figure()
-plt.imshow(otsu(frames[1]), 'gray')
-line_props = find_smears([base_img] + frames)
-print('estimated props', line_props)
-print('actual props:', props)
-graph_props(base_img, props, line_props)
-#global_img = basic(img)
-#otsu_img = otsu(img)
-#find_smear(base_img, smear_img)
-#optical_flow(base_img, smear_img)
-plt.show()
+def line_diff(l0, l1):
+    d0 = discretize_line(l0['slope'], l0['intercept'])
+    d1 = discretize_line(l1['slope'], l1['intercept'])
+    res = []
+    for i in range(len(d0)):
+        res.append(d1[i] - d0[i])
+    return res 
+
+def get_variance():
+    import mock
+    plt = mock.Mock()
+    values = []
+    skipped = 0
+    for i in range(25):
+        base_img = cv.imread('pics/night_sky4.jpg',0)
+        frames, props = smear(base_img)
+        otsu_img = otsu(base_img)
+        frames = [add_sensor_noise(f) for f in frames]
+        try:
+            line_props = find_smears([base_img] + frames)
+        except:
+            continue
+        print('estimated props', line_props)
+        print('actual props:', props)
+        diff = line_diff(props, line_props)
+        print('mean diff per point', sum(diff) / len(diff))
+        import math
+        if abs(sum(diff) / len(diff)) > 20:
+            print('SKIPPING SAMPLE, total skipped: ', skipped)
+            skipped += 1
+            continue
+        values.append(
+            diff
+        )
+    print('stddev', np.std(values))
+
+def main():
+    import mock
+    plt = mock.Mock()
+    base_img = cv.imread('pics/night_sky4.jpg',0)
+    frames, props = smear(base_img)
+    otsu_img = otsu(base_img)
+    plt.figure()
+    plt.title('Starfield after Otsu Binarization')
+    plt.xlabel('X Pixels')
+    plt.ylabel('Y Pixels')
+    plt.imshow(otsu_img, 'gray')
+    frames = [add_sensor_noise(f) for f in frames]
+    plt.figure()
+    plt.imshow(otsu(frames[1]), 'gray')
+    line_props = find_smears([base_img] + frames)
+    print('estimated props', line_props)
+    print('actual props:', props)
+    graph_props(base_img, props, line_props)
+    #global_img = basic(img)
+    #otsu_img = otsu(img)
+    #find_smear(base_img, smear_img)
+    #optical_flow(base_img, smear_img)
+    plt.show()
+
+def time():
+    import mock
+    plt = mock.Mock()
+    base_img = cv.imread('pics/night_sky4.jpg',0)
+    frames, props = smear(base_img)
+    otsu_img = otsu(base_img)
+    plt.figure()
+    plt.title('Starfield after Otsu Binarization')
+    plt.xlabel('X Pixels')
+    plt.ylabel('Y Pixels')
+    plt.imshow(otsu_img, 'gray')
+    frames = [add_sensor_noise(f) for f in frames]
+    plt.figure()
+    plt.imshow(otsu(frames[1]), 'gray')
+    line_props = find_smears([base_img] + frames)
+    print('estimated props', line_props)
+    print('actual props:', props)
+    graph_props(base_img, props, line_props)
+    #global_img = basic(img)
+    #otsu_img = otsu(img)
+    #find_smear(base_img, smear_img)
+    #optical_flow(base_img, smear_img)
+    plt.show()
+
+main()
+#get_variance()
