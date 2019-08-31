@@ -11,6 +11,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 import numpy as np
 import itertools
 from PIL import Image
+from astropy.io import fits
 import scipy.ndimage
 import scipy.optimize
 import scipy.stats
@@ -28,6 +29,7 @@ show_solution = True
 # determines approximately what image fields of view
 # can be identified by the algorithm
 max_fovs = [10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60]
+#max_fovs = [10]
 
 # radius around image stars to search for matching catalog stars
 # as a fraction of image field of view in x dimension
@@ -65,7 +67,8 @@ pattern_size = 5
 
 # minimum number of pixels in a group of bright pixels
 # needed to classify the group as a star
-min_pixels_in_group = 3
+#min_pixels_in_group = 3
+min_pixels_in_group = 1
 
 # centroiding window radius around a star's center pixel
 # does not count the center pixel
@@ -75,17 +78,18 @@ window_radius = 2
 max_pattern_checking_stars = 8
 
 # maximum probability of mismatch for verifying an attitude determination
-max_mismatch_probability = 1e-20
+#max_mismatch_probability = 1e-20
+max_mismatch_probability = 1e-10
 
 # percentage of fine sky map that stores values
-fine_sky_map_fill_factor = 1
+fine_sky_map_fill_factor = .5
 
 # number of divisions to break a single radius of
 # the celestial sphere into for rapid star lookup
 num_fine_sky_map_bins = 100
 
 # percentage of course sky map that stores values
-course_sky_map_fill_factor = 1
+course_sky_map_fill_factor = .5
 
 # number of divisions to break a single radius of
 # the celestial sphere into for rapid star lookup
@@ -93,7 +97,7 @@ num_course_sky_map_bins = 4
 
 # constant used for randomizing hash functions
 avalanche_constant = 2654435761
-  
+
 # converts a hash_code into an index in the hash table
 def hash_code_to_index(hash_code, bins_per_dimension, hash_table_size):
   # convert hashcode to python integers
@@ -104,7 +108,7 @@ def hash_code_to_index(hash_code, bins_per_dimension, hash_table_size):
   # take the result modulo the table size to give a random index
   index = (integer_hash_code * avalanche_constant) % hash_table_size
   return index
-  
+
 # find all stars within a radius centered on the given vector using the compressed course sky map
 def get_nearby_stars_compressed_course(vector, radius):
   # create list of nearby stars
@@ -118,6 +122,8 @@ def get_nearby_stars_compressed_course(vector, radius):
     # iterate over the star lists in the given partition, adding them to
     # the nearby stars list if they're in the correct bin and within range of the vector
     for index in ((2 * (hash_index + offset ** 2)) % compressed_course_sky_map_hash_table_size for offset in itertools.count()):
+      index = int(index)
+
       # if the current slot is empty, the bin does not exist
       if not compressed_course_sky_map[index]:
         break
@@ -138,15 +144,15 @@ def get_nearby_stars_compressed_course(vector, radius):
 
 # open the pattern catalog and fine sky map and test whether they are fully
 # generated with the following parameters and if not, regenerate them
-parameters = (max_fovs, 
-              num_catalog_bins, 
-              max_stars_per_fov, 
-              magnitude_minimum, 
-              min_angle, 
-              pattern_size, 
-              fine_sky_map_fill_factor, 
+parameters = (max_fovs,
+              num_catalog_bins,
+              max_stars_per_fov,
+              magnitude_minimum,
+              min_angle,
+              pattern_size,
+              fine_sky_map_fill_factor,
               num_fine_sky_map_bins,
-              course_sky_map_fill_factor, 
+              course_sky_map_fill_factor,
               num_course_sky_map_bins)
 # try opening the database files
 try:
@@ -177,7 +183,7 @@ if read_failed or str(parameters) != stored_parameters:
                     ("XRPM", np.float32),
                     ("XDPM", np.float32)
                    ]
-  
+
   # open BSC5 catalog file for reading
   bsc5_file = open('BSC5', 'rb')
   # skip first 28 header bytes
@@ -187,7 +193,7 @@ if read_failed or str(parameters) != stored_parameters:
 
   # year to calculate catalog for
   # should be relatively close to 1950
-  year = 2016
+  year = 2019
 
   # retrieve star positions, magnitudes and ids from BSC5 catalog
   stars = []
@@ -213,7 +219,7 @@ if read_failed or str(parameters) != stored_parameters:
       star_id = int(bsc5[star_num][0])
       # add vector, magnitude pair to list of stars
       stars.append((vector, mag, star_id))
-        
+
   # fast method for removing double stars using sort
   # sort list by x component of star vectors
   stars.sort(key=lambda star: star[0][0])
@@ -235,11 +241,11 @@ if read_failed or str(parameters) != stored_parameters:
 
   # output how many stars will be stored in the star table and the fine and course sky maps
   print("number of stars in star table and sky maps: " + str(len(stars)))
-  
+
   # add all non-double stars brighter than magnitude_minimum to the star table and sky maps
   star_table = np.zeros((STARN+1, 3), dtype=np.float32)
   # create fine sky map hash table, which maps vectors to star ids
-  :ine_sky_map = np.zeros(int(len(stars) / fine_sky_map_fill_factor), dtype=np.uint16)
+  fine_sky_map = np.zeros(int(len(stars) / fine_sky_map_fill_factor), dtype=np.uint16)
   # create course sky map hash table, which maps vectors to star ids
   course_sky_map = {}
   for (vector, mag, star_id) in stars_no_doubles:
@@ -265,26 +271,26 @@ if read_failed or str(parameters) != stored_parameters:
   # the map consists of a hash table, a superlist of stars, and a number representing the size of the hash table
   # the hash table consists of pairs of indices which slice the superlist into the output star id lists
   compressed_course_sky_map_hash_table_size = 2 * len(course_sky_map.keys()) / course_sky_map_fill_factor
-  compressed_course_sky_map = np.zeros(compressed_course_sky_map_hash_table_size + len(stars_no_doubles) + 1, dtype=np.uint16)
+  compressed_course_sky_map = np.zeros(int(compressed_course_sky_map_hash_table_size + len(stars_no_doubles) + 1), dtype=np.uint16)
   compressed_course_sky_map[-1] = compressed_course_sky_map_hash_table_size
   # add the items of the course sky map to the compressed course sky map one at a time
   first_open_slot_in_superlist = compressed_course_sky_map_hash_table_size
   for (hash_code, star_id_list) in course_sky_map.items():
     # compute the indices for the slice of the superlist the star id list will occupy
-    slice_indices = (first_open_slot_in_superlist, first_open_slot_in_superlist + len(star_id_list))
+    slice_indices = (int(first_open_slot_in_superlist), int(first_open_slot_in_superlist + len(star_id_list)))
     # add the star id list to the superlist
     compressed_course_sky_map[slice(*slice_indices)] = star_id_list
     # increment the counter for the first open slot in the superlist
     first_open_slot_in_superlist += len(star_id_list)
     hash_index = hash_code_to_index(hash_code, 2*num_course_sky_map_bins, compressed_course_sky_map_hash_table_size)
     # use quadratic probing to find an open space in the hash table to insert the star in
-    for index in ((2 * (hash_index + offset ** 2)) % compressed_course_sky_map_hash_table_size for offset in itertools.count()):
+    for index in (int((2 * (hash_index + offset ** 2)) % compressed_course_sky_map_hash_table_size) for offset in itertools.count()):
       # if the current slot is empty, add the slice indices to the hash table
       # otherwise, move on to the next slot
       if not compressed_course_sky_map[index]:
         compressed_course_sky_map[index:index+2] = slice_indices
         break
-  
+
   # sort list by star magnitude, from brightest to dimmest
   stars_no_doubles.sort(key=lambda star: star[1])
 
@@ -303,7 +309,7 @@ if read_failed or str(parameters) != stored_parameters:
         if np.dot(vector, star_table[star_id]) > np.cos(radius):
           nearby_star_ids.append(star_id)
     return nearby_star_ids
-  
+
   # generate pattern catalog
   print("generating catalog, this may take an hour...")
   # create temporary list to store the patterns
@@ -314,10 +320,10 @@ if read_failed or str(parameters) != stored_parameters:
   # generate a piece of the catalog for each fov specified
   for max_fov in max_fovs:
     print("computing " + str(max_fov) + " degree fov patterns...")
-  
+
     # change field of view from degrees to radians
     max_fov_rad = max_fov * np.pi / 180
-    
+
     # fast method for pruning high density areas of the sky
     # create a hash table of the sky, which divides the
     # unit cube around the celestial sphere
@@ -335,7 +341,7 @@ if read_failed or str(parameters) != stored_parameters:
       pruned_course_sky_map[hash_code] = pruned_course_sky_map.pop(hash_code, []) + [star_id]
     # create a list of stars without high density areas of the sky
     star_ids_pruned = [star_id for sublist in pruned_course_sky_map.values() for star_id in sublist]
-      
+
     # initialize pattern, which will contain pattern_size star ids
     pattern = [None] * pattern_size
     for pattern[0] in star_ids_pruned:
@@ -357,7 +363,7 @@ if read_failed or str(parameters) != stored_parameters:
 
   # insert star patterns into pattern catalog hash table
   print("inserting patterns into catalog...")
-  pattern_catalog = np.zeros((num_patterns_found / catalog_fill_factor, pattern_size), dtype=np.uint16)
+  pattern_catalog = np.zeros((int(num_patterns_found / catalog_fill_factor), pattern_size), dtype=np.uint16)
   for pattern in pattern_list:
     # retrieve the vectors of the stars in the pattern
     vectors = np.array([star_table[star_id] for star_id in pattern])
@@ -390,11 +396,15 @@ if read_failed or str(parameters) != stored_parameters:
   np.save('compressed_course_sky_map.npy', compressed_course_sky_map)
   np.save('pattern_catalog.npy', pattern_catalog)
   parameters = open('params.txt', 'w').write(str(parameters))
-  
+
 # run the tetra star tracking algorithm on the given image
 def tetra(image_file_name):
-  # read image from file and convert to black and white
-  image = np.array(Image.open(image_file_name).convert('L'))
+  if image_file_name.endswith('.fit'):
+      fits_file = fits.open(image_file_name)
+      image = fits_file[0].data
+  else:
+      # read image from file and convert to black and white
+      image = np.array(Image.open(image_file_name).convert('L'))
   # extract height (y) and width (x) of image
   height, width = image.shape
 
@@ -476,7 +486,7 @@ def tetra(image_file_name):
     # correct the star center position using the calculated center of mass to create a centroid
     star_centroids.append((y + y_center, x + x_center))
   # sort star centroids from brightest to dimmest by comparing the total masses of their window pixels
-  star_centroids.sort(key=lambda yx:-np.sum(normalized_image[yx[0]-window_radius:yx[0]+window_radius+1, yx[1]-window_radius:yx[1]+window_radius+1]))
+  star_centroids.sort(key=lambda yx:-np.sum(normalized_image[int(yx[0])-window_radius:int(yx[0])+window_radius+1, int(yx[1])-window_radius:int(yx[1])+window_radius+1]))
 
   # compute list of (i,j,k) vectors given list of (y,x) star centroids and
   # an estimate of the image's field-of-view in the x dimension
@@ -523,7 +533,7 @@ def tetra(image_file_name):
           pattern_indices[index_to_change] = pattern_indices[index_to_change - 1] + 1
       # output the centroids corresponding to the current set of pattern indices
       yield star_centroids[pattern_indices[1:-1]]
-          
+
   # iterate over every combination of size pattern_size of the brightest max_pattern_checking_stars stars in the image
   for pattern_star_centroids in centroid_pattern_generator(star_centroids[:max_pattern_checking_stars], pattern_size):
     # iterate over possible fields-of-view
@@ -595,7 +605,7 @@ def tetra(image_file_name):
           pattern_radii = [np.linalg.norm(star_vector - pattern_centroid) for star_vector in pattern_star_vectors]
           # use the radii to uniquely order the pattern's star vectors so they can be matched with the catalog vectors
           pattern_sorted_vectors = np.array(pattern_star_vectors)[np.argsort(pattern_radii)]
-          
+
           # calculate the least-squares rotation matrix from the catalog frame to the image frame
           def find_rotation_matrix(image_vectors, catalog_vectors):
             # find the covariance matrix H between the image vectors and catalog vectors
@@ -607,12 +617,12 @@ def tetra(image_file_name):
             # by flipping the sign of the third column of the rotation matrix
             rotation_matrix[:,2] *= np.linalg.det(rotation_matrix)
             return rotation_matrix
-          
+
           # use the pattern match to find an estimate for the image's rotation matrix
           rotation_matrix = find_rotation_matrix(pattern_sorted_vectors, catalog_sorted_vectors)
           # calculate all star vectors using the new field-of-view
           all_star_vectors = compute_vectors(star_centroids, fov)
-          
+
           def find_matches(all_star_vectors, rotation_matrix):
             # rotate each of the star vectors into the catalog frame by
             # using the inverse (transpose) of the tentative rotation matrix
@@ -655,7 +665,7 @@ def tetra(image_file_name):
                 continue
               matches.append((image_vector, np.array(catalog_vector)))
             return matches
-          
+
           matches = find_matches(all_star_vectors, rotation_matrix)
           # calculate loose upper bound on probability of mismatch assuming random star distribution
           # find number of catalog stars appear in a circumscribed circle around the image

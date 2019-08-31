@@ -1,9 +1,6 @@
 # Tetra
 
-##Try Tetra Out
-Test Tetra before you download it with the web demo: <a href="http://tetra.rocks" target="_blank">tetra.rocks</a>.
-
-##Run Tetra on Your Personal Computer
+This is a version of tetra adapted for the IRISC Bexus project. 
 
 1. Create a directory (i.e. Tetra).
 2. Place tetra.py in the directory.
