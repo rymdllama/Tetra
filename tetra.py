@@ -16,6 +16,7 @@ import scipy.ndimage
 import scipy.optimize
 import scipy.stats
 import glob
+import warnings
 
 # directory containing input images
 image_directory = './pics'
@@ -23,7 +24,7 @@ image_directory = './pics'
 # boolean for whether or not to display an annotated version
 # of the image with identified stars circled in green and
 # unmatched catalog stars circled in red
-show_solution = True
+show_solution = False
 
 # maximum fields of view of catalog patterns in degrees
 # determines approximately what image fields of view
@@ -660,10 +661,13 @@ def tetra(image_file_name):
             # reverse order so that image vector is first in each pair
             matches = []
             for (catalog_vector, image_vector) in matches_hash.items():
-              # filter out catalog stars with multiple image star matches
-              if image_vector == "multiple matches":
-                continue
-              matches.append((image_vector, np.array(catalog_vector)))
+              # These lines will suppress a warning where python and numpy handles types a little bit different. Be very careful with it in the future.
+              with warnings.catch_warnings():
+                warnings.simplefilter(action='ignore', category=FutureWarning)
+                # filter out catalog stars with multiple image star matches
+                if image_vector == "multiple matches":
+                  continue
+                matches.append((image_vector, np.array(catalog_vector)))
             return matches
 
           matches = find_matches(all_star_vectors, rotation_matrix)
@@ -679,7 +683,7 @@ def tetra(image_file_name):
           # if a high probability match has been found, recompute the attitude using all matching stars
           if mismatch_probability_upper_bound < max_mismatch_probability:
             # diplay mismatch probability in scientific notation
-            print ("mismatch probability: %.4g" % mismatch_probability_upper_bound)
+            # print ("mismatch probability: %.4g" % mismatch_probability_upper_bound)
             # recalculate the rotation matrix using the newly identified stars
             rotation_matrix = find_rotation_matrix(*zip(*matches))
             # recalculate matched stars given new rotation matrix
@@ -741,9 +745,12 @@ def tetra(image_file_name):
               rgb_image.show()
             return
 
-  # print failure message
-  print("failed to determine attitude")
-
+  # print failure message, changed to simply outputting 0 for all values as this was deemed easier and I'm in a hurry. This is not very beautiful.
+  # print("failed to determine attitude")
+  print("RA:   0")
+  print("DEC:   0")
+  print("ROLL:   0")
+  print("FOV:   0")
 for image_file_name in glob.glob(image_directory + '/*'):
-  print(image_file_name)
+  # print(image_file_name)
   tetra(image_file_name)

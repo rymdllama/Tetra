@@ -1,6 +1,9 @@
 # Tetra
 
 This is a version of tetra adapted for the IRISC Bexus project. 
+As it will communicate with the rest of the software the output was changed, since it will not be read bu humans. Basically, a little bit less info is printed, and in the event of failure it will return 0 to all four values returned (Ra, Dec, Roll, FoV).
+These changes are generally not very beautiful.
+Also, it is being adapted to work with FIT/FITS, as that is the camera output. (Kinda WIP)
 
 1. Create a directory (i.e. Tetra).
 2. Place tetra.py in the directory.
