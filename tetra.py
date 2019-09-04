@@ -19,7 +19,10 @@ import glob
 import warnings
 
 # directory containing input images
-image_directory = './pics'
+image_directory = './Tetra/pics'
+
+# relative path from executable to tetra
+tetra_directory = './Tetra/'
 
 # boolean for whether or not to display an annotated version
 # of the image with identified stars circled in green and
@@ -157,12 +160,12 @@ parameters = (max_fovs,
               num_course_sky_map_bins)
 # try opening the database files
 try:
-  pattern_catalog = np.load('pattern_catalog.npy')
-  fine_sky_map = np.load('fine_sky_map.npy')
-  compressed_course_sky_map = np.load('compressed_course_sky_map.npy')
+  pattern_catalog = np.load(tetra_directory + 'pattern_catalog.npy')
+  fine_sky_map = np.load(tetra_directory + 'fine_sky_map.npy')
+  compressed_course_sky_map = np.load(tetra_directory + 'compressed_course_sky_map.npy')
   compressed_course_sky_map_hash_table_size = compressed_course_sky_map[-1]
-  star_table = np.load('star_table.npy')
-  stored_parameters = open('params.txt', 'r').read()
+  star_table = np.load(tetra_directory + 'star_table.npy')
+  stored_parameters = open(tetra_directory + 'params.txt', 'r').read()
   # if it got this far, the reads didn't fail
   read_failed = 0
 except:
@@ -186,7 +189,7 @@ if read_failed or str(parameters) != stored_parameters:
                    ]
 
   # open BSC5 catalog file for reading
-  bsc5_file = open('BSC5', 'rb')
+  bsc5_file = open(tetra_directory + 'BSC5', 'rb')
   # skip first 28 header bytes
   bsc5_file.seek(28)
   # read BSC5 catalog into array
@@ -392,11 +395,11 @@ if read_failed or str(parameters) != stored_parameters:
         continue
 
   # save star table, sky maps, pattern catalog, and parameters to disk
-  np.save('star_table.npy', star_table)
-  np.save('fine_sky_map.npy', fine_sky_map)
-  np.save('compressed_course_sky_map.npy', compressed_course_sky_map)
-  np.save('pattern_catalog.npy', pattern_catalog)
-  parameters = open('params.txt', 'w').write(str(parameters))
+  np.save(tetra_directory + 'star_table.npy', star_table)
+  np.save(tetra_directory + 'fine_sky_map.npy', fine_sky_map)
+  np.save(tetra_directory + 'compressed_course_sky_map.npy', compressed_course_sky_map)
+  np.save(tetra_directory + 'pattern_catalog.npy', pattern_catalog)
+  parameters = open(tetra_directory + 'params.txt', 'w').write(str(parameters))
 
 # run the tetra star tracking algorithm on the given image
 def tetra(image_file_name):
