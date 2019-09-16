@@ -19,7 +19,7 @@ import glob
 import warnings
 
 # directory containing input images
-image_directory = './Tetra/pics'
+image_directory = './output/guiding/star_tracker'
 
 # relative path from executable to tetra
 tetra_directory = './Tetra/'
