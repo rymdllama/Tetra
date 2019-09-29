@@ -19,10 +19,10 @@ import glob
 import warnings
 
 # directory containing input images
-image_directory = './Tetra/pics'
+image_directory = './pics'
 
 # relative path from executable to tetra
-tetra_directory = './Tetra/'
+tetra_directory = ''
 
 # boolean for whether or not to display an annotated version
 # of the image with identified stars circled in green and
@@ -32,8 +32,8 @@ show_solution = False
 # maximum fields of view of catalog patterns in degrees
 # determines approximately what image fields of view
 # can be identified by the algorithm
-max_fovs = [10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60]
-#max_fovs = [10]
+#max_fovs = [10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60]
+max_fovs = [10]
 
 # radius around image stars to search for matching catalog stars
 # as a fraction of image field of view in x dimension
@@ -101,6 +101,15 @@ num_course_sky_map_bins = 4
 
 # constant used for randomizing hash functions
 avalanche_constant = 2654435761
+
+# constant used for converting mas to rad
+masrad = np.pi / 648000000
+
+# Which catalog is used? "bsc5" or "hip2"
+catalog = 'bsc5'
+
+# Year to calculate catalog for
+year = 2019
 
 # converts a hash_code into an index in the hash table
 def hash_code_to_index(hash_code, bins_per_dimension, hash_table_size):
@@ -175,54 +184,88 @@ except:
 # reading the stored files failed or the stored parameters
 # are different than those specified above
 if read_failed or str(parameters) != stored_parameters:
-  # number of stars in BSC5 catalog
-  STARN = 9110
+  if catalog == 'bsc5':
+    # number of stars in BSC5 catalog
+    STARN = 9110
 
-  # BSC5 data storage format
-  bsc5_data_type = [("XNO", np.float32),
-                    ("SRA0", np.float64),
-                    ("SDEC0", np.float64),
-                    ("IS", np.int16),
-                    ("MAG", np.int16),
-                    ("XRPM", np.float32),
-                    ("XDPM", np.float32)
-                   ]
+    # BSC5 data storage format
+    bsc5_data_type = [("XNO", np.float32),
+                      ("SRA0", np.float64),
+                      ("SDEC0", np.float64),
+                      ("IS", np.int16),
+                      ("MAG", np.int16),
+                      ("XRPM", np.float32),
+                      ("XDPM", np.float32)
+                     ]
 
-  # open BSC5 catalog file for reading
-  bsc5_file = open(tetra_directory + 'BSC5', 'rb')
-  # skip first 28 header bytes
-  bsc5_file.seek(28)
-  # read BSC5 catalog into array
-  bsc5 = np.fromfile(bsc5_file, dtype=bsc5_data_type, count=STARN)
+    # open BSC5 catalog file for reading
+    bsc5_file = open(tetra_directory + 'BSC5', 'rb')
+    # skip first 28 header bytes
+    bsc5_file.seek(28)
+    # read BSC5 catalog into array
+    bsc5 = np.fromfile(bsc5_file, dtype=bsc5_data_type, count=STARN)
 
-  # year to calculate catalog for
-  # should be relatively close to 1950
-  year = 2019
+    # retrieve star positions, magnitudes and ids from BSC5 catalog
+    stars = []
+    for star_num in range(STARN):
+      # only use stars brighter (i.e. lower magnitude)
+      # than the minimum allowable magnitude
+      mag = bsc5[star_num][4] / 100.0
+      if mag <= magnitude_minimum:
+        # retrieve RA in 1950
+        ra = bsc5[star_num][1]
+        # correct RA to modern day
+        ra += bsc5[star_num][5] * (year - 1950)
+        # retrieve DEC in 1950
+        dec = bsc5[star_num][2]
+        # correct DEC to modern day
+        dec += bsc5[star_num][6] * (year - 1950)
+        # skip blank star entries
+        if ra == 0.0 and dec == 0.0:
+          continue
+        # convert RA, DEC to (x,y,z)
+        vector = np.array([np.cos(ra)*np.cos(dec), np.sin(ra)*np.cos(dec), np.sin(dec)])
+        # retrieve star ID number in BSC5
+        star_id = int(bsc5[star_num][0])
+        # add vector, magnitude pair to list of stars
+        stars.append((vector, mag, star_id))
 
-  # retrieve star positions, magnitudes and ids from BSC5 catalog
-  stars = []
-  for star_num in range(STARN):
-    # only use stars brighter (i.e. lower magnitude)
-    # than the minimum allowable magnitude
-    mag = bsc5[star_num][4] / 100.0
-    if mag <= magnitude_minimum:
-      # retrieve RA in 1950
-      ra = bsc5[star_num][1]
-      # correct RA to modern day
-      ra += bsc5[star_num][5] * (year - 1950)
-      # retrieve DEC in 1950
-      dec = bsc5[star_num][2]
-      # correct DEC to modern day
-      dec += bsc5[star_num][6] * (year - 1950)
-      # skip blank star entries
-      if ra == 0.0 and dec == 0.0:
-        continue
-      # convert RA, DEC to (x,y,z)
-      vector = np.array([np.cos(ra)*np.cos(dec), np.sin(ra)*np.cos(dec), np.sin(dec)])
-      # retrieve star ID number in BSC5
-      star_id = int(bsc5[star_num][0])
-      # add vector, magnitude pair to list of stars
-      stars.append((vector, mag, star_id))
+  elif catalog == 'hip2':
+    # number of stars in Hipparcos catalog
+    STARN = 10000
+
+    #
+    hip2_file = open(tetra_directory + 'hip2.dat', 'r')
+
+    stars = []
+    i = 1
+    while True:
+        line = hip2_file.readline()
+
+        # No more lines to read
+        if not line:
+            break
+        # Get star ID
+        # star_id = int(float(line[1:6]))
+        star_id = i
+        i+=1
+        # Get star RA and DEC in J1991.25
+        ra = float(line[16:28])
+        dec = float(line[30:42])
+        # Get Hp Magnitude, used instead of V Mag
+        mag = float(line[130:136])
+        # Get proper motion and convert mas/yr to rad/yr
+        xrpm = float(line[52:59])*masrad
+        xdpm = float(line[61:68])*masrad
+        # Actual locations
+        ra += xrpm * (year - 1991)
+        dec += xdpm * (year - 1991)
+
+        # convert RA, DEC to (x,y,z)
+        vector = np.array([np.cos(ra)*np.cos(dec), np.sin(ra)*np.cos(dec), np.sin(dec)])
+        # add vector, magnitude pair to list of stars
+        stars.append((vector, mag, star_id))
+
 
   # fast method for removing double stars using sort
   # sort list by x component of star vectors
