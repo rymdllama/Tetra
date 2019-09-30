@@ -12,7 +12,7 @@
 #define num_stars_in_pattern 4
 /* Minimum star brightness (in magnitude) for inclusion in catalog. */
 /* Note that lower magnitude values are brighter. */
-#define min_magnitude 6.2
+#define min_magnitude 5.0
 /* Maximum Field of View for catalog in radians. */
 /* Also the maximum angle between any two stars in a tetrahedron. */
 /* Typically equal to the angle subtended by the imager's diagonal. */
@@ -1015,7 +1015,7 @@ static void populate_catalog(FILE *pattern_catalog_file,
                      0);
     /* Write cached piece of the catalog to disk. */
     printf("\nWriting piece to disk...\n");
-    fseeko64(pattern_catalog_file,
+    fseek(pattern_catalog_file,
               max_cat_cache_size*cache_index*sizeof(Pattern),
               SEEK_SET);
     fwrite(pattern_catalog_cache,
@@ -1054,7 +1054,7 @@ int main(int argc, char *argv[]) {
     return 1;
   }
   /* Offset read position in file by 28 bytes to ignore header data. */
-  fseeko64(bsc_file, 28, SEEK_SET);
+  fseek(bsc_file, 28, SEEK_SET);
   /* Read BSC5 into cache. */
   for(int i=0;i<STARN;i++){
     fread(&bsc_cache[i].XNO, 4, 1, bsc_file);
@@ -1135,11 +1135,11 @@ int main(int argc, char *argv[]) {
   /* to set the catalog size based on the user specified density. */
   printf("Counting the number of Patterns the catalog will contain...\n");
   num_patterns = count_patterns(stars, num_stars);
-  printf("\n%llu patterns counted\n", num_patterns);
+  printf("\n%lu patterns counted\n", num_patterns);
 
   catalog_size_in_patterns = num_patterns*(1.0/catalog_density);
   catalog_size_in_bytes = catalog_size_in_patterns * sizeof(Pattern);
-  printf("Generating catalog of size %llu patterns and %llu bytes...\n",
+  printf("Generating catalog of size %lu patterns and %lu bytes...\n",
          catalog_size_in_patterns,
          catalog_size_in_bytes);
   /* Open pattern catalog file for writing. */
@@ -1153,6 +1153,10 @@ int main(int argc, char *argv[]) {
                    catalog_size_in_patterns,
                    stars,
                    num_stars);
+
+  free(stars);
+  free(stars_temp);
+
   /* Retrieve deepest probe depth reached while generating catalog. */
   uint64_t cache_offset = 0;
   int probe_step = 0;
