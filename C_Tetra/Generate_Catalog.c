@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include <stdio.h>
 #include <stdbool.h>
 #include <stdlib.h>
@@ -63,7 +64,11 @@
 /* Mathematical constant pi's approximate value. */
 #define PI 3.1415926
 /* The current calendar year. */
-#define current_year 2017
+#define current_year 2019
+/* Conversion between mas and rad */
+#define MASRAD PI / 648000000
+/* Choice between BSC5 (1) and Hip2 (2) catalog.*/
+#define CATALOG 2
 
 /* The following values are not user defined constants and should therefore not be changed. */
 /* Maximum scaling of image caused by FOV error. */
@@ -1046,27 +1051,60 @@ int main(int argc, char *argv[]) {
   uint64_t catalog_size_in_patterns;
   /* Size of pattern catalog in bytes. */
   uint64_t catalog_size_in_bytes;
+  /* Catalog year, for proper position */
+  int catalog_year = 0;
 
-  /* Open BSC5 file for reading. */
-  bsc_file = fopen("BSC5","rb");
-  if(!bsc_file){
-    printf("Unable to open BSC5 file!");
+  if (CATALOG == 1){
+    /* Set catalog year */
+    catalog_year = 1950;
+    /* Open BSC5 file for reading. */
+    bsc_file = fopen("BSC5","rb");
+    if(!bsc_file){
+      printf("Unable to open BSC5 file!");
+      return 1;
+    }
+    /* Offset read position in file by 28 bytes to ignore header data. */
+    fseek(bsc_file, 28, SEEK_SET);
+    /* Read BSC5 into cache. */
+    for(int i=0;i<STARN;i++){
+      fread(&bsc_cache[i].XNO, 4, 1, bsc_file);
+      fread(&bsc_cache[i].SRA0, 8, 1, bsc_file);
+      fread(&bsc_cache[i].SDEC0, 8, 1, bsc_file);
+      fread(&bsc_cache[i].IS, 2, 1, bsc_file);
+      fread(&bsc_cache[i].MAG, 2, 1, bsc_file);
+      fread(&bsc_cache[i].XRPM, 4, 1, bsc_file);
+      fread(&bsc_cache[i].XDPM, 4, 1, bsc_file);
+    }
+    /* Close BSC5 file. */
+    fclose(bsc_file);
+  }
+  else if (CATALOG == 2){
+    catalog_year = 1991;
+    char *line_cache = NULL;
+    size_t len = 0;
+    char *tempPtr;
+    char tempStr[12];
+    bsc_file = fopen("hip2.dat", "r");
+    if(!bsc_file){
+      printf("Unable to open Hip-2 file!");
+        return 1;
+    }
+    for(int i=0; i<STARN;i++){
+        getline(&line_cache, &len, bsc_file);
+        bsc_cache[i].XNO = strtof(strncpy(tempStr, line_cache + 1, 6), &tempPtr);
+        bsc_cache[i].SRA0 = strtod(strncpy(tempStr, line_cache + 16, 12), &tempPtr);
+        bsc_cache[i].SDEC0 = strtod(strncpy(tempStr, line_cache + 30, 12), &tempPtr);
+        bsc_cache[i].MAG = (int) strtod(strncpy(tempStr, line_cache + 130, 6), &tempPtr);
+        bsc_cache[i].XRPM = strtof(strncpy(tempStr, line_cache + 52, 7), &tempPtr)*MASRAD;
+        bsc_cache[i].XDPM = strtof(strncpy(tempStr, line_cache + 61, 7), &tempPtr)*MASRAD;
+        bsc_cache[i].IS = 1;
+     }
+    fclose(bsc_file);
+  }
+  else {
+    printf("No catalog found!");
     return 1;
   }
-  /* Offset read position in file by 28 bytes to ignore header data. */
-  fseek(bsc_file, 28, SEEK_SET);
-  /* Read BSC5 into cache. */
-  for(int i=0;i<STARN;i++){
-    fread(&bsc_cache[i].XNO, 4, 1, bsc_file);
-    fread(&bsc_cache[i].SRA0, 8, 1, bsc_file);
-    fread(&bsc_cache[i].SDEC0, 8, 1, bsc_file);
-    fread(&bsc_cache[i].IS, 2, 1, bsc_file);
-    fread(&bsc_cache[i].MAG, 2, 1, bsc_file);
-    fread(&bsc_cache[i].XRPM, 4, 1, bsc_file);
-    fread(&bsc_cache[i].XDPM, 4, 1, bsc_file);
-  }
-  /* Close BSC5 file. */
-  fclose(bsc_file);
 
   /* Read BSC5 catalog and create temporary array of normalized vectors pointing */
   /* at each star.  Also filter out stars dimmer than the minimum magnitude. */
@@ -1074,9 +1112,9 @@ int main(int argc, char *argv[]) {
     /* If the star is at least as bright as the minimum magnitude, add its vector to the array. */
     if(bsc_cache[i].MAG/100.0 <= min_magnitude){
       /* Correct right ascension by adding proper motion times the number of years since 1950. */
-      double ra = bsc_cache[i].SRA0+bsc_cache[i].XRPM*(current_year-1950);
+      double ra = bsc_cache[i].SRA0+bsc_cache[i].XRPM*(current_year-catalog_year);
       /* Correct declination by adding proper motion times the number of years since 1950 */
-      double dec = bsc_cache[i].SDEC0+bsc_cache[i].XDPM*(current_year-1950);
+      double dec = bsc_cache[i].SDEC0+bsc_cache[i].XDPM*(current_year-catalog_year);
       if(ra == 0.0 && dec == 0.0){
         continue;
       }
